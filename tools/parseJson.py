@@ -10,7 +10,6 @@ BASE_URL = "https://trails-game.com/?p="
 TYPES = ["Char", "Org", "Fam"]
 
 def search_for_link(name, new_node, type_):
-    result = None
     if type_.split(".")[0] == "Char":
         result = requests.get(SEARCH_URL, 
         params={"type":"post", 
@@ -23,30 +22,26 @@ def search_for_link(name, new_node, type_):
         "subtype": "map", 
         "per_page":"1",
         "search": name})
+
+    new_node["wikiPage"] = ""
+    if result is not None and len(result.json()) > 0:
+        new_node["wikiPage"] = result.json()[0]["url"]
     
-    if result is not None:
-        responseJson = result.json()
-        if len(responseJson) > 0:
-            new_node["wikiPage"] = responseJson[0]["url"]
-        else:
-            new_node["wikiPage"] = ""
-    else:
-        new_node["wikiPage"] = ""
 
 def parse_name_page(sheet, names, name_id_map, thread_list, malformed_types, nodes):
     #name sheet processing
     id = 0
+    # 其实可以不转换，直接在pandas.Dataframe上操作，效率更高
     values = sheet["角色"].to_dict(orient="records")
     for v in values:
         if not v["name"] in names:
             names.add(v["name"])
-
-            new_node = {"name" : v["name"], "id": str(id)}
             name_id_map[v["name"]] = str(id)
+            new_node = {"name" : v["name"], "id": str(id)}
 
-            id = id + 1
             if (str(v["avatar"]) != "nan"):
                 new_node["avatar"] = str(v["avatar"])
+            
             if (str(v["postid"]) != "nan"):
                 new_node["wikiPage"] = BASE_URL + str(int(v["postid"]))
             else:
@@ -55,7 +50,7 @@ def parse_name_page(sheet, names, name_id_map, thread_list, malformed_types, nod
                 t.start()
 
             new_node["type"]=v["type"] if v["type"] in TYPES else malformed_types.append(v)
-
+            id = id + 1
             nodes.append(new_node)
 
 def parse_relations(sheet, names, malformed_relations, missing_names, name_id_map, links):
@@ -63,6 +58,7 @@ def parse_relations(sheet, names, malformed_relations, missing_names, name_id_ma
     # set的效率比list高很多。
     exising_src_dest_pairs = set()
 
+    # 同理
     _values = sheet["人物组织关系"].to_dict(orient="records")
 
     for v in _values:
@@ -79,14 +75,13 @@ def parse_relations(sheet, names, malformed_relations, missing_names, name_id_ma
         # 验证结束
         # 这个if没有任何作用，因为前面有问题的都continue了
         # if (not v["source"] in missing_names and not v["target"] in missing_names):
-        source_id = name_id_map[v["source"]]
-        target_id = name_id_map[v["target"]]
+        source_id, target_id = name_id_map[v["source"]], name_id_map[v["target"]]
 
         # 这里要用tuple，用dict的话，in就只会参考source_id而忽略target_id
         pair = (source_id, target_id)
         if not pair in exising_src_dest_pairs:
             exising_src_dest_pairs.add(pair)
-            new_link = {"source":source_id, "target":target_id, "relation":v["Relation"], "type":v["RelationType"]}
+            new_link = {"source":source_id, "target":target_id, "relation": v["Relation"], "type":v["RelationType"]}
             links.append(new_link)
 
 def check_values(missing_names, malformed_types, malformed_relations):
